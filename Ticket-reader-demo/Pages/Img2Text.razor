@@ -1,0 +1,107 @@
+﻿@page "/Img2Text"
+
+@using Microsoft.Azure.CognitiveServices.Vision.ComputerVision;
+@using Microsoft.Azure.CognitiveServices.Vision.ComputerVision.Models;
+
+@using BlazorInputFile
+@using Ticket_reader_demo.Data
+@using Ticket_reader_demo.Services
+
+@using System.Net.Http.Headers
+@using Newtonsoft.Json
+@using Newtonsoft.Json.Linq
+@inject IFileUpload fileupload
+@inject IJSRuntime JSR
+
+
+<h3>Upload your Image Here:</h3>
+<br/>
+<BlazorInputFile.InputFile OnChange="SelectFile"/>
+
+<div id="MessageBox">
+</div>
+<hr />
+
+@if (imagevalue != null)
+{
+    <p>
+        <h5>Result:</h5>
+        @imagevalue
+    </p>
+}
+
+@code {
+    string imagevalue;
+
+    static string subscriptionKey = "*****************************"; //Your API key goes here
+    static string endpoint = "https://************************.cognitiveservices.azure.com/"; //Your Endpoint goes here
+    static string uriBase = endpoint + "vision/v3.2/ocr"; //The service required goes here --See Computer Vision API (v3.2) documentation
+
+
+    async Task SelectFile(IFileListEntry[] files)
+    {
+        var file = files.FirstOrDefault();
+        if (file != null)
+        {
+            await fileupload.UploadFile(file);
+            //await JSR.InvokeVoidAsync("ShowMessageFile",file.Name,file.RelativePath,file.Type);
+
+            string FilePath = "C:\\ImageDetector\\Ticket-reader-demo\\Ticket-reader-demo\\UploadloadedFiles\\" + file.Name; //Path changes depending of your local route
+            imagevalue = FilePath;
+
+            try
+            {
+                HttpClient client = new HttpClient();
+
+                client.DefaultRequestHeaders.Add("Ocp-Apim-Subscription-Key", subscriptionKey);
+                string requestParameters = "language=unk&detectOrientation=true";
+
+                string uri = uriBase + "?" + requestParameters;
+
+                HttpResponseMessage response;
+
+                byte[] byteData = GetImageAsByteArray(FilePath);
+                using (ByteArrayContent content = new ByteArrayContent(byteData))
+                {
+                    content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+
+                    response = await client.PostAsync(uri, content);
+                }
+                string contentString = await response.Content.ReadAsStringAsync();
+
+                var result = JsonConvert.DeserializeObject<RootOCR>(contentString);
+
+                foreach (Region reg in result.regions)
+                {
+                    foreach (Ticket_reader_demo.Data.Line ln in reg.lines)
+                    {
+                        foreach (Ticket_reader_demo.Data.Word wrd in ln.words)
+                        {
+                            imagevalue = imagevalue + " " + wrd.text;
+                        }
+                    }
+                }
+
+            }
+            catch (Exception ex)
+            {
+                imagevalue = ex.ToString();
+            }
+
+        }
+    }
+
+
+    static byte[] GetImageAsByteArray(string imageFilePath)
+    {
+        // Open a read-only file stream for the specified file.
+        using (FileStream fileStream =
+            new FileStream(imageFilePath, FileMode.Open, FileAccess.Read))
+        {
+            // Read the file's contents into a byte array.
+            BinaryReader binaryReader = new BinaryReader(fileStream);
+            return binaryReader.ReadBytes((int)fileStream.Length);
+        }
+    }
+
+}
